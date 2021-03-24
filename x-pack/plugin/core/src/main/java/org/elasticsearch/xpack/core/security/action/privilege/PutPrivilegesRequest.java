@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.action.privilege;
 
@@ -30,6 +31,12 @@ public final class PutPrivilegesRequest extends ActionRequest implements Applica
 
     private List<ApplicationPrivilegeDescriptor> privileges;
     private RefreshPolicy refreshPolicy = RefreshPolicy.IMMEDIATE;
+
+    public PutPrivilegesRequest(StreamInput in) throws IOException {
+        super(in);
+        privileges = Collections.unmodifiableList(in.readList(ApplicationPrivilegeDescriptor::new));
+        refreshPolicy = RefreshPolicy.readFrom(in);
+    }
 
     public PutPrivilegesRequest() {
         privileges = Collections.emptyList();
@@ -109,13 +116,6 @@ public final class PutPrivilegesRequest extends ActionRequest implements Applica
     public String toString() {
         return getClass().getSimpleName() + "{[" + privileges.stream().map(Strings::toString).collect(Collectors.joining(","))
             + "];" + refreshPolicy + "}";
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        privileges = Collections.unmodifiableList(in.readList(ApplicationPrivilegeDescriptor::new));
-        refreshPolicy = RefreshPolicy.readFrom(in);
     }
 
     @Override

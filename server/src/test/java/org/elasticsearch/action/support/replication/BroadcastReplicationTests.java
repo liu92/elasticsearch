@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.action.support.replication;
 
@@ -44,6 +33,7 @@ import org.elasticsearch.common.util.PageCacheRecycler;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.core.internal.io.IOUtils;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.indices.TestIndexNameExpressionResolver;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
 import org.elasticsearch.rest.RestStatus;
@@ -103,7 +93,7 @@ public class BroadcastReplicationTests extends ESTestCase {
         transportService.start();
         transportService.acceptIncomingRequests();
         broadcastReplicationAction = new TestBroadcastReplicationAction(clusterService, transportService,
-                new ActionFilters(new HashSet<>()), new IndexNameExpressionResolver(), null);
+            new ActionFilters(new HashSet<>()), TestIndexNameExpressionResolver.newInstance(threadPool.getThreadContext()));
     }
 
     @Override
@@ -125,7 +115,7 @@ public class BroadcastReplicationTests extends ESTestCase {
                 randomBoolean() ? ShardRoutingState.INITIALIZING : ShardRoutingState.UNASSIGNED, ShardRoutingState.UNASSIGNED));
         logger.debug("--> using initial state:\n{}", clusterService.state());
         PlainActionFuture<BroadcastResponse> response = PlainActionFuture.newFuture();
-        broadcastReplicationAction.execute(new DummyBroadcastRequest(index), response);
+        ActionTestUtils.execute(broadcastReplicationAction, null, new DummyBroadcastRequest(index), response);
         for (Tuple<ShardId, ActionListener<ReplicationResponse>> shardRequests : broadcastReplicationAction.capturedShardRequests) {
             if (randomBoolean()) {
                 shardRequests.v2().onFailure(new NoShardAvailableActionException(shardRequests.v1()));
@@ -145,7 +135,7 @@ public class BroadcastReplicationTests extends ESTestCase {
                 ShardRoutingState.STARTED));
         logger.debug("--> using initial state:\n{}", clusterService.state());
         PlainActionFuture<BroadcastResponse> response = PlainActionFuture.newFuture();
-        broadcastReplicationAction.execute(new DummyBroadcastRequest(index), response);
+        ActionTestUtils.execute(broadcastReplicationAction, null, new DummyBroadcastRequest(index), response);
         for (Tuple<ShardId, ActionListener<ReplicationResponse>> shardRequests : broadcastReplicationAction.capturedShardRequests) {
             ReplicationResponse replicationResponse = new ReplicationResponse();
             replicationResponse.setShardInfo(new ReplicationResponse.ShardInfo(1, 1));
@@ -161,7 +151,7 @@ public class BroadcastReplicationTests extends ESTestCase {
         setState(clusterService, stateWithAssignedPrimariesAndOneReplica(index, numShards));
         logger.debug("--> using initial state:\n{}", clusterService.state());
         PlainActionFuture<BroadcastResponse> response = PlainActionFuture.newFuture();
-        broadcastReplicationAction.execute(new DummyBroadcastRequest().indices(index), response);
+        ActionTestUtils.execute(broadcastReplicationAction, null, new DummyBroadcastRequest().indices(index), response);
         int succeeded = 0;
         int failed = 0;
         for (Tuple<ShardId, ActionListener<ReplicationResponse>> shardRequests : broadcastReplicationAction.capturedShardRequests) {
@@ -213,10 +203,9 @@ public class BroadcastReplicationTests extends ESTestCase {
             ConcurrentCollections.newConcurrentSet();
 
         TestBroadcastReplicationAction(ClusterService clusterService, TransportService transportService,
-                ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver,
-                TransportReplicationAction<BasicReplicationRequest, BasicReplicationRequest, ReplicationResponse> action) {
+                ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver) {
             super("internal:test-broadcast-replication-action", DummyBroadcastRequest::new, clusterService, transportService,
-                    actionFilters, indexNameExpressionResolver, action);
+                    null, actionFilters, indexNameExpressionResolver, null);
         }
 
         @Override
@@ -256,7 +245,7 @@ public class BroadcastReplicationTests extends ESTestCase {
             TransportBroadcastReplicationAction<DummyBroadcastRequest, BroadcastResponse, ?, ?> broadcastAction,
             DummyBroadcastRequest request) {
         PlainActionFuture<BroadcastResponse> response = PlainActionFuture.newFuture();
-        broadcastAction.execute(request, response);
+        ActionTestUtils.execute(broadcastAction, null, request, response);
         return response.actionGet("5s");
     }
 

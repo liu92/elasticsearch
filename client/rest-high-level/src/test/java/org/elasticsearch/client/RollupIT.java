@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.client;
 
@@ -29,8 +18,8 @@ import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.WriteRequest;
-import org.elasticsearch.client.core.IndexerState;
 import org.elasticsearch.client.core.AcknowledgedResponse;
+import org.elasticsearch.client.core.IndexerState;
 import org.elasticsearch.client.rollup.DeleteRollupJobRequest;
 import org.elasticsearch.client.rollup.GetRollupCapsRequest;
 import org.elasticsearch.client.rollup.GetRollupCapsResponse;
@@ -40,10 +29,10 @@ import org.elasticsearch.client.rollup.GetRollupJobRequest;
 import org.elasticsearch.client.rollup.GetRollupJobResponse;
 import org.elasticsearch.client.rollup.GetRollupJobResponse.JobWrapper;
 import org.elasticsearch.client.rollup.PutRollupJobRequest;
-import org.elasticsearch.client.rollup.StartRollupJobRequest;
-import org.elasticsearch.client.rollup.StartRollupJobResponse;
 import org.elasticsearch.client.rollup.RollableIndexCaps;
 import org.elasticsearch.client.rollup.RollupJobCaps;
+import org.elasticsearch.client.rollup.StartRollupJobRequest;
+import org.elasticsearch.client.rollup.StartRollupJobResponse;
 import org.elasticsearch.client.rollup.StopRollupJobRequest;
 import org.elasticsearch.client.rollup.StopRollupJobResponse;
 import org.elasticsearch.client.rollup.job.config.DateHistogramGroupConfig;
@@ -54,10 +43,10 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
-import org.elasticsearch.search.aggregations.metrics.NumericMetricsAggregation;
 import org.elasticsearch.search.aggregations.metrics.AvgAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.MaxAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.MinAggregationBuilder;
+import org.elasticsearch.search.aggregations.metrics.NumericMetricsAggregation;
 import org.elasticsearch.search.aggregations.metrics.SumAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.ValueCountAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -257,20 +246,6 @@ public class RollupIT extends ESRestHighLevelClientTestCase {
         assertEquals(0, response.getHits().getTotalHits().value);
         NumericMetricsAggregation.SingleValue avg = response.getAggregations().get("avg");
         assertThat(avg.value(), closeTo(sum / numDocs, 0.00000001));
-    }
-
-    public void testSearchWithType() throws Exception {
-        SearchRequest search = new SearchRequest(rollupIndex);
-        search.types("a", "b", "c");
-        search.source(new SearchSourceBuilder()
-                .size(0)
-                .aggregation(new AvgAggregationBuilder("avg").field("value")));
-        try {
-            highLevelClient().rollup().search(search, RequestOptions.DEFAULT);
-            fail("types are not allowed but didn't fail");
-        } catch (ValidationException e) {
-            assertEquals("Validation Failed: 1: types are not allowed in rollup search;", e.getMessage());
-        }
     }
 
     public void testGetMissingRollupJob() throws Exception {

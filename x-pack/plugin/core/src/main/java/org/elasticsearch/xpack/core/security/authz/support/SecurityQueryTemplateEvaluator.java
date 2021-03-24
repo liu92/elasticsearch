@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.security.authz.support;
@@ -44,10 +45,8 @@ public final class SecurityQueryTemplateEvaluator {
      * @return resultant query string after compiling and executing the script.
      * If the source does not contain template then it will return the query
      * source without any modifications.
-     * @throws IOException thrown when there is any error parsing the query
-     * string.
      */
-    public static String evaluateTemplate(final String querySource, final ScriptService scriptService, final User user) throws IOException {
+    public static String evaluateTemplate(final String querySource, final ScriptService scriptService, final User user) {
         // EMPTY is safe here because we never use namedObject
         try (XContentParser parser = XContentFactory.xContent(querySource).createParser(NamedXContentRegistry.EMPTY,
                 LoggingDeprecationHandler.INSTANCE, querySource)) {
@@ -76,6 +75,8 @@ public final class SecurityQueryTemplateEvaluator {
             } else {
                 return querySource;
             }
+        } catch (IOException ioe) {
+            throw new ElasticsearchParseException("failed to parse query", ioe);
         }
     }
 

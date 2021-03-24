@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.ssl;
@@ -24,12 +13,15 @@ import org.elasticsearch.bootstrap.JavaVersion;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.TrustManagerFactory;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.common.ssl.KeyStoreUtil.inferKeyStoreType;
+import static org.elasticsearch.common.ssl.SslConfiguration.ORDERED_PROTOCOL_ALGORITHM_MAP;
 import static org.elasticsearch.common.ssl.SslConfigurationKeys.CERTIFICATE;
 import static org.elasticsearch.common.ssl.SslConfigurationKeys.CERTIFICATE_AUTHORITIES;
 import static org.elasticsearch.common.ssl.SslConfigurationKeys.CIPHERS;
@@ -66,33 +58,100 @@ import static org.elasticsearch.common.ssl.SslConfigurationKeys.VERIFICATION_MOD
  */
 public abstract class SslConfigurationLoader {
 
-    static final List<String> DEFAULT_PROTOCOLS = List.of("TLSv1.3", "TLSv1.2", "TLSv1.1");
+    static final List<String> DEFAULT_PROTOCOLS = Collections.unmodifiableList(
+        ORDERED_PROTOCOL_ALGORITHM_MAP.containsKey("TLSv1.3") ?
+            Arrays.asList("TLSv1.3", "TLSv1.2", "TLSv1.1") : Arrays.asList("TLSv1.2", "TLSv1.1"));
 
     private static final List<String> JDK11_CIPHERS = List.of(
-        "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", // TLSv1.3 cipher has PFS, AEAD, hardware support
-        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", // PFS, AEAD, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", // PFS, AEAD, hardware support
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",  "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", // PFS, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", // PFS, hardware support
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", // PFS, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", // PFS, hardware support
-        "TLS_RSA_WITH_AES_256_GCM_SHA384", "TLS_RSA_WITH_AES_128_GCM_SHA256", // AEAD, hardware support
-        "TLS_RSA_WITH_AES_256_CBC_SHA256", "TLS_RSA_WITH_AES_128_CBC_SHA256", // hardware support
-        "TLS_RSA_WITH_AES_256_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA"); // hardware support
+        // TLSv1.3 cipher has PFS, AEAD, hardware support
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_AES_128_GCM_SHA256",
+
+        // PFS, AEAD, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+
+        // PFS, AEAD, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+
+        // PFS, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+
+        // AEAD, hardware support
+        "TLS_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_RSA_WITH_AES_128_GCM_SHA256",
+
+        // hardware support
+        "TLS_RSA_WITH_AES_256_CBC_SHA256",
+        "TLS_RSA_WITH_AES_128_CBC_SHA256",
+
+        // hardware support
+        "TLS_RSA_WITH_AES_256_CBC_SHA",
+        "TLS_RSA_WITH_AES_128_CBC_SHA"
+    );
 
     private static final List<String> JDK12_CIPHERS = List.of(
-        "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", // TLSv1.3 cipher has PFS, AEAD, hardware support
-        "TLS_CHACHA20_POLY1305_SHA256", // TLSv1.3 cipher has PFS, AEAD
-        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", // PFS, AEAD, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", // PFS, AEAD, hardware support
-        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", // PFS, AEAD
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",  "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", // PFS, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", // PFS, hardware support
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", // PFS, hardware support
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", // PFS, hardware support
-        "TLS_RSA_WITH_AES_256_GCM_SHA384", "TLS_RSA_WITH_AES_128_GCM_SHA256", // AEAD, hardware support
-        "TLS_RSA_WITH_AES_256_CBC_SHA256", "TLS_RSA_WITH_AES_128_CBC_SHA256", // hardware support
-        "TLS_RSA_WITH_AES_256_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA"); // hardware support
+        // TLSv1.3 cipher has PFS, AEAD, hardware support
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_AES_128_GCM_SHA256",
+
+        // TLSv1.3 cipher has PFS, AEAD
+        "TLS_CHACHA20_POLY1305_SHA256",
+
+        // PFS, AEAD, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+
+        // PFS, AEAD, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+
+        // PFS, AEAD
+        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+
+        // PFS, hardware support
+        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+
+        // PFS, hardware support
+        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+
+        // AEAD, hardware support
+        "TLS_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_RSA_WITH_AES_128_GCM_SHA256",
+
+        // hardware support
+        "TLS_RSA_WITH_AES_256_CBC_SHA256",
+        "TLS_RSA_WITH_AES_128_CBC_SHA256",
+
+        // hardware support
+        "TLS_RSA_WITH_AES_256_CBC_SHA",
+        "TLS_RSA_WITH_AES_128_CBC_SHA"
+    );
 
     static final List<String> DEFAULT_CIPHERS =
         JavaVersion.current().compareTo(JavaVersion.parse("12")) > -1 ? JDK12_CIPHERS : JDK11_CIPHERS;

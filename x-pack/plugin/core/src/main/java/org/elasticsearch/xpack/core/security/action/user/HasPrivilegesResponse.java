@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.action.user;
 
@@ -34,6 +35,15 @@ public class HasPrivilegesResponse extends ActionResponse implements ToXContentO
 
     public HasPrivilegesResponse() {
         this("", true, Collections.emptyMap(), Collections.emptyList(), Collections.emptyMap());
+    }
+
+    public HasPrivilegesResponse(StreamInput in) throws IOException {
+        super(in);
+        completeMatch = in.readBoolean();
+        cluster = in.readMap(StreamInput::readString, StreamInput::readBoolean);
+        index = readResourcePrivileges(in);
+        application = in.readMap(StreamInput::readString, HasPrivilegesResponse::readResourcePrivileges);
+        username = in.readString();
     }
 
     public HasPrivilegesResponse(String username, boolean completeMatch, Map<String, Boolean> cluster, Collection<ResourcePrivileges> index,
@@ -99,15 +109,6 @@ public class HasPrivilegesResponse extends ActionResponse implements ToXContentO
         return Objects.hash(username, completeMatch, cluster, index, application);
     }
 
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        completeMatch = in.readBoolean();
-        cluster = in.readMap(StreamInput::readString, StreamInput::readBoolean);
-        index = readResourcePrivileges(in);
-        application = in.readMap(StreamInput::readString, HasPrivilegesResponse::readResourcePrivileges);
-        username = in.readString();
-    }
-
     private static Set<ResourcePrivileges> readResourcePrivileges(StreamInput in) throws IOException {
         final int count = in.readVInt();
         final Set<ResourcePrivileges> set = new TreeSet<>(Comparator.comparing(o -> o.getResource()));
@@ -121,7 +122,6 @@ public class HasPrivilegesResponse extends ActionResponse implements ToXContentO
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         out.writeBoolean(completeMatch);
         out.writeMap(cluster, StreamOutput::writeString, StreamOutput::writeBoolean);
         writeResourcePrivileges(out, index);

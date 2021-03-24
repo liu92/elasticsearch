@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.authz.privilege;
 
@@ -24,7 +25,7 @@ import java.util.stream.Collectors;
  * An application privilege has an application name (e.g. {@code "my-app"}) that identifies an application (that exists
  * outside of elasticsearch), a privilege name (e.g. {@code "admin}) that is meaningful to that application, and one or
  * more "action patterns" (e.g {@code "admin/user/*", "admin/team/*"}).
- * Action patterns must contain at least one special character from ({@code /}, {@code :}, {@code *}) to distinguish them
+ * ActionType patterns must contain at least one special character from ({@code /}, {@code :}, {@code *}) to distinguish them
  * from privilege names.
  * The action patterns are entirely optional - many application will find that simple "privilege names" are sufficient, but
  * they allow applications to define high level abstract privileges that map to multiple low level capabilities.

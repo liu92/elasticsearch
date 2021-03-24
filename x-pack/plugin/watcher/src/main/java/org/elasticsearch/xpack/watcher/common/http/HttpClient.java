@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.watcher.common.http;
 
@@ -25,8 +26,6 @@ import org.apache.http.client.methods.HttpRequestWrapper;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.client.utils.URIUtils;
-import org.apache.http.conn.ssl.DefaultHostnameVerifier;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
@@ -113,8 +112,7 @@ public class HttpClient implements Closeable {
 
         // ssl setup
         SSLConfiguration sslConfiguration = sslService.getSSLConfiguration(SETTINGS_SSL_PREFIX);
-        boolean isHostnameVerificationEnabled = sslConfiguration.verificationMode().isHostnameVerificationEnabled();
-        HostnameVerifier verifier = isHostnameVerificationEnabled ? new DefaultHostnameVerifier() : NoopHostnameVerifier.INSTANCE;
+        HostnameVerifier verifier = SSLService.getHostnameVerifier(sslConfiguration);
         SSLConnectionSocketFactory factory = new SSLConnectionSocketFactory(sslService.sslSocketFactory(sslConfiguration), verifier);
         clientBuilder.setSSLSocketFactory(factory);
 
@@ -316,7 +314,8 @@ public class HttpClient implements Closeable {
         return HttpProxy.NO_PROXY;
     }
 
-    private Tuple<HttpHost, URI> createURI(HttpRequest request) {
+    // for testing
+    static Tuple<HttpHost, URI> createURI(HttpRequest request) {
         try {
             List<NameValuePair> qparams = new ArrayList<>(request.params.size());
             request.params.forEach((k, v) -> qparams.add(new BasicNameValuePair(k, v)));
@@ -327,9 +326,20 @@ public class HttpClient implements Closeable {
                 unescapedPathParts = Collections.emptyList();
             } else {
                 final String[] pathParts = request.path.split("/");
+                final boolean isPathEndsWithSlash = request.path.endsWith("/");
                 unescapedPathParts = new ArrayList<>(pathParts.length);
-                for (String part : pathParts) {
-                    unescapedPathParts.add(URLDecoder.decode(part, StandardCharsets.UTF_8.name()));
+                for (int i = 0; i < pathParts.length; i++) {
+                    String part = pathParts[i];
+                    boolean isLast = i == pathParts.length - 1;
+                    if (Strings.isEmpty(part) == false) {
+                        unescapedPathParts.add(URLDecoder.decode(part, StandardCharsets.UTF_8.name()));
+                        // if the passed URL ends with a slash, adding an empty string to the
+                        // unescaped paths will ensure the slash will be added back
+                        boolean appendSlash = isPathEndsWithSlash && isLast;
+                        if (appendSlash) {
+                            unescapedPathParts.add("");
+                        }
+                    }
                 }
             }
 

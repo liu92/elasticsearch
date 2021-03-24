@@ -1,38 +1,29 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.repositories.fs;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.elasticsearch.cluster.metadata.RepositoryMetaData;
+import org.elasticsearch.cluster.metadata.RepositoryMetadata;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.blobstore.BlobPath;
 import org.elasticsearch.common.blobstore.BlobStore;
 import org.elasticsearch.common.blobstore.fs.FsBlobStore;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Setting.Property;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
 import org.elasticsearch.env.Environment;
+import org.elasticsearch.indices.recovery.RecoverySettings;
 import org.elasticsearch.repositories.RepositoryException;
 import org.elasticsearch.repositories.blobstore.BlobStoreRepository;
-import org.elasticsearch.threadpool.ThreadPool;
 
 import java.nio.file.Path;
 import java.util.function.Function;
@@ -66,14 +57,12 @@ public class FsRepository extends BlobStoreRepository {
 
     private final ByteSizeValue chunkSize;
 
-    private final BlobPath basePath;
-
     /**
      * Constructs a shared file system repository.
      */
-    public FsRepository(RepositoryMetaData metadata, Environment environment, NamedXContentRegistry namedXContentRegistry,
-                        ThreadPool threadPool) {
-        super(metadata, environment.settings(), namedXContentRegistry, threadPool);
+    public FsRepository(RepositoryMetadata metadata, Environment environment, NamedXContentRegistry namedXContentRegistry,
+                        ClusterService clusterService, BigArrays bigArrays, RecoverySettings recoverySettings) {
+        super(metadata, namedXContentRegistry, clusterService, bigArrays, recoverySettings, BlobPath.cleanPath());
         this.environment = environment;
         String location = REPOSITORIES_LOCATION_SETTING.get(metadata.settings());
         if (location.isEmpty()) {
@@ -101,14 +90,13 @@ public class FsRepository extends BlobStoreRepository {
         } else {
             this.chunkSize = REPOSITORIES_CHUNK_SIZE_SETTING.get(environment.settings());
         }
-        this.basePath = BlobPath.cleanPath();
     }
 
     @Override
     protected BlobStore createBlobStore() throws Exception {
-        final String location = REPOSITORIES_LOCATION_SETTING.get(metadata.settings());
+        final String location = REPOSITORIES_LOCATION_SETTING.get(getMetadata().settings());
         final Path locationFile = environment.resolveRepoFile(location);
-        return new FsBlobStore(environment.settings(), locationFile, isReadOnly());
+        return new FsBlobStore(bufferSize, locationFile, isReadOnly());
     }
 
     @Override
@@ -117,7 +105,9 @@ public class FsRepository extends BlobStoreRepository {
     }
 
     @Override
-    protected BlobPath basePath() {
-        return basePath;
+    public boolean hasAtomicOverwrites() {
+        // We overwrite a file by deleting the old file and then renaming the new file into place, which is not atomic.
+        // Also on Windows the overwrite may fail if the file is opened for reading at the time.
+        return false;
     }
 }

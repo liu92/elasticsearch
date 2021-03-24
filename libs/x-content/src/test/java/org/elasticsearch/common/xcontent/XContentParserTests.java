@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.common.xcontent;
@@ -30,18 +19,21 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.instanceOf;
-import static org.hamcrest.Matchers.isIn;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.internal.matchers.ThrowableMessageMatcher.hasMessage;
 
 public class XContentParserTests extends ESTestCase {
 
@@ -75,14 +67,21 @@ public class XContentParserTests extends ESTestCase {
 
             assertEquals(value, number.floatValue(), 0.0f);
 
-            if (xContentType == XContentType.CBOR) {
-                // CBOR parses back a float
-                assertTrue(number instanceof Float);
-            } else {
-                // JSON, YAML and SMILE parses back the float value as a double
-                // This will change for SMILE in Jackson 2.9 where all binary based
-                // formats will return a float
-                assertTrue(number instanceof Double);
+            switch (xContentType) {
+                case VND_CBOR:
+                case VND_SMILE:
+                case CBOR:
+                case SMILE:
+                    assertThat(number, instanceOf(Float.class));
+                    break;
+                case VND_JSON:
+                case VND_YAML:
+                case JSON:
+                case YAML:
+                    assertThat(number, instanceOf(Double.class));
+                    break;
+                default:
+                    throw new AssertionError("unexpected x-content type [" + xContentType + "]");
             }
         }
     }
@@ -186,7 +185,7 @@ public class XContentParserTests extends ESTestCase {
             assertThat(parser.currentName(), equalTo("foo"));
             token = parser.nextToken();
             assertThat(token, equalTo(XContentParser.Token.START_OBJECT));
-            return randomBoolean() ? parser.mapStringsOrdered() : parser.mapStrings();
+            return parser.mapStrings();
         }
     }
 
@@ -202,7 +201,7 @@ public class XContentParserTests extends ESTestCase {
             assertThat(token, equalTo(XContentParser.Token.FIELD_NAME));
             assertThat(parser.currentName(), equalTo("foo"));
             token = parser.nextToken();
-            assertThat(token, isIn(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_NUMBER)));
+            assertThat(token, in(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_NUMBER)));
             assertFalse(parser.isBooleanValue());
             if (token.equals(XContentParser.Token.VALUE_STRING)) {
                 expectThrows(IllegalArgumentException.class, parser::booleanValue);
@@ -214,7 +213,7 @@ public class XContentParserTests extends ESTestCase {
             assertThat(token, equalTo(XContentParser.Token.FIELD_NAME));
             assertThat(parser.currentName(), equalTo("bar"));
             token = parser.nextToken();
-            assertThat(token, isIn(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_NUMBER)));
+            assertThat(token, in(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_NUMBER)));
             assertFalse(parser.isBooleanValue());
             if (token.equals(XContentParser.Token.VALUE_STRING)) {
                 expectThrows(IllegalArgumentException.class, parser::booleanValue);
@@ -235,7 +234,7 @@ public class XContentParserTests extends ESTestCase {
             assertThat(token, equalTo(XContentParser.Token.FIELD_NAME));
             assertThat(parser.currentName(), equalTo("foo"));
             token = parser.nextToken();
-            assertThat(token, isIn(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_BOOLEAN)));
+            assertThat(token, in(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_BOOLEAN)));
             assertTrue(parser.isBooleanValue());
             assertFalse(parser.booleanValue());
 
@@ -243,7 +242,7 @@ public class XContentParserTests extends ESTestCase {
             assertThat(token, equalTo(XContentParser.Token.FIELD_NAME));
             assertThat(parser.currentName(), equalTo("bar"));
             token = parser.nextToken();
-            assertThat(token, isIn(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_BOOLEAN)));
+            assertThat(token, in(Arrays.asList(XContentParser.Token.VALUE_STRING, XContentParser.Token.VALUE_BOOLEAN)));
             assertTrue(parser.isBooleanValue());
             assertTrue(parser.booleanValue());
         }
@@ -326,6 +325,57 @@ public class XContentParserTests extends ESTestCase {
             assertEquals(
                     Arrays.asList(singletonMap("foo", "bar"), emptyMap()),
                     parser.list());
+        }
+    }
+
+    public void testGenericMap() throws IOException {
+        String content = "{" +
+            "\"c\": { \"i\": 3, \"d\": 0.3, \"s\": \"ccc\" }, " +
+            "\"a\": { \"i\": 1, \"d\": 0.1, \"s\": \"aaa\" }, " +
+            "\"b\": { \"i\": 2, \"d\": 0.2, \"s\": \"bbb\" }" +
+            "}";
+        SimpleStruct structA = new SimpleStruct(1, 0.1, "aaa");
+        SimpleStruct structB = new SimpleStruct(2, 0.2, "bbb");
+        SimpleStruct structC = new SimpleStruct(3, 0.3, "ccc");
+        try (XContentParser parser = createParser(JsonXContent.jsonXContent, content)) {
+            Map<String, SimpleStruct> actualMap = parser.map(HashMap::new, SimpleStruct::fromXContent);
+            // Verify map contents, ignore the iteration order.
+            assertThat(actualMap, equalTo(Map.of("a", structA, "b", structB, "c", structC)));
+            assertThat(actualMap.values(), containsInAnyOrder(structA, structB, structC));
+            assertNull(parser.nextToken());
+        }
+    }
+
+    public void testGenericMapOrdered() throws IOException {
+        String content = "{" +
+            "\"c\": { \"i\": 3, \"d\": 0.3, \"s\": \"ccc\" }, " +
+            "\"a\": { \"i\": 1, \"d\": 0.1, \"s\": \"aaa\" }, " +
+            "\"b\": { \"i\": 2, \"d\": 0.2, \"s\": \"bbb\" }" +
+            "}";
+        SimpleStruct structA = new SimpleStruct(1, 0.1, "aaa");
+        SimpleStruct structB = new SimpleStruct(2, 0.2, "bbb");
+        SimpleStruct structC = new SimpleStruct(3, 0.3, "ccc");
+        try (XContentParser parser = createParser(JsonXContent.jsonXContent, content)) {
+            Map<String, SimpleStruct> actualMap = parser.map(LinkedHashMap::new, SimpleStruct::fromXContent);
+            // Verify map contents, ignore the iteration order.
+            assertThat(actualMap, equalTo(Map.of("a", structA, "b", structB, "c", structC)));
+            // Verify that map's iteration order is the same as the order in which fields appear in JSON.
+            assertThat(actualMap.values(), contains(structC, structA, structB));
+            assertNull(parser.nextToken());
+        }
+    }
+
+    public void testGenericMap_Failure_MapContainingUnparsableValue() throws IOException {
+        String content = "{" +
+            "\"a\": { \"i\": 1, \"d\": 0.1, \"s\": \"aaa\" }, " +
+            "\"b\": { \"i\": 2, \"d\": 0.2, \"s\": 666 }, " +
+            "\"c\": { \"i\": 3, \"d\": 0.3, \"s\": \"ccc\" }" +
+            "}";
+        try (XContentParser parser = createParser(JsonXContent.jsonXContent, content)) {
+            XContentParseException exception = expectThrows(
+                XContentParseException.class,
+                () -> parser.map(HashMap::new, SimpleStruct::fromXContent));
+            assertThat(exception, hasMessage(containsString("s doesn't support values of type: VALUE_NUMBER")));
         }
     }
 
@@ -450,7 +500,7 @@ public class XContentParserTests extends ESTestCase {
      *
      * Returns the number of tokens in the marked field
      */
-    private int generateRandomObjectForMarking(XContentBuilder builder) throws IOException {
+    private static int generateRandomObjectForMarking(XContentBuilder builder) throws IOException {
         builder.startObject()
             .field("first_field", "foo")
             .field("marked_field");
@@ -459,7 +509,7 @@ public class XContentParserTests extends ESTestCase {
         return numberOfTokens;
     }
 
-    private int generateRandomObject(XContentBuilder builder, int level) throws IOException {
+    public static int generateRandomObject(XContentBuilder builder, int level) throws IOException {
         int tokens = 2;
         builder.startObject();
         int numberOfElements = randomInt(5);
@@ -471,7 +521,7 @@ public class XContentParserTests extends ESTestCase {
         return tokens;
     }
 
-    private int generateRandomValue(XContentBuilder builder, int level) throws IOException {
+    private static int generateRandomValue(XContentBuilder builder, int level) throws IOException {
         @SuppressWarnings("unchecked") CheckedSupplier<Integer, IOException> fieldGenerator = randomFrom(
             () -> {
                 builder.value(randomInt());
@@ -506,7 +556,7 @@ public class XContentParserTests extends ESTestCase {
         return fieldGenerator.get();
     }
 
-    private int generateRandomArray(XContentBuilder builder, int level) throws IOException {
+    private static int generateRandomArray(XContentBuilder builder, int level) throws IOException {
         int tokens = 2;
         int arraySize = randomInt(3);
         builder.startArray();

@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.action.user;
 
@@ -26,6 +27,20 @@ public class HasPrivilegesRequest extends ActionRequest implements UserRequest {
     private String[] clusterPrivileges;
     private RoleDescriptor.IndicesPrivileges[] indexPrivileges;
     private ApplicationResourcePrivileges[] applicationPrivileges;
+
+    public HasPrivilegesRequest() {}
+
+    public HasPrivilegesRequest(StreamInput in) throws IOException {
+        super(in);
+        this.username = in.readString();
+        this.clusterPrivileges = in.readStringArray();
+        int indexSize = in.readVInt();
+        indexPrivileges = new RoleDescriptor.IndicesPrivileges[indexSize];
+        for (int i = 0; i < indexSize; i++) {
+            indexPrivileges[i] = new RoleDescriptor.IndicesPrivileges(in);
+        }
+        applicationPrivileges = in.readArray(ApplicationResourcePrivileges::new, ApplicationResourcePrivileges[]::new);
+    }
 
     @Override
     public ActionRequestValidationException validate() {
@@ -96,19 +111,6 @@ public class HasPrivilegesRequest extends ActionRequest implements UserRequest {
 
     public void applicationPrivileges(ApplicationResourcePrivileges... appPrivileges) {
         this.applicationPrivileges = appPrivileges;
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        this.username = in.readString();
-        this.clusterPrivileges = in.readStringArray();
-        int indexSize = in.readVInt();
-        indexPrivileges = new RoleDescriptor.IndicesPrivileges[indexSize];
-        for (int i = 0; i < indexSize; i++) {
-            indexPrivileges[i] = new RoleDescriptor.IndicesPrivileges(in);
-        }
-        applicationPrivileges = in.readArray(ApplicationResourcePrivileges::new, ApplicationResourcePrivileges[]::new);
     }
 
     @Override

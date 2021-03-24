@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.action;
 
@@ -30,6 +31,7 @@ import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.xpack.core.action.util.ExpandedIdsMatcher;
 import org.elasticsearch.xpack.core.action.util.QueryPage;
@@ -41,7 +43,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import static org.elasticsearch.xpack.core.ClientHelper.executeAsyncWithOrigin;
 
@@ -55,13 +56,12 @@ public abstract class AbstractTransportGetResourcesAction<Resource extends ToXCo
     Request extends AbstractGetResourcesRequest, Response extends AbstractGetResourcesResponse<Resource>>
     extends HandledTransportAction<Request, Response> {
 
-    private static final String ALL = "_all";
-
     private final Client client;
     private final NamedXContentRegistry xContentRegistry;
 
     protected AbstractTransportGetResourcesAction(String actionName, TransportService transportService, ActionFilters actionFilters,
-                                                  Supplier<Request> request, Client client, NamedXContentRegistry xContentRegistry) {
+                                                  Writeable.Reader<Request> request, Client client,
+                                                  NamedXContentRegistry xContentRegistry) {
         super(actionName, transportService, actionFilters, request);
         this.client = Objects.requireNonNull(client);
         this.xContentRegistry = Objects.requireNonNull(xContentRegistry);
@@ -70,12 +70,16 @@ public abstract class AbstractTransportGetResourcesAction<Resource extends ToXCo
     protected void searchResources(AbstractGetResourcesRequest request, ActionListener<QueryPage<Resource>> listener) {
         String[] tokens = Strings.tokenizeToStringArray(request.getResourceId(), ",");
         SearchSourceBuilder sourceBuilder = new SearchSourceBuilder()
-            .sort(request.getResourceIdField())
+            .sort(SortBuilders.fieldSort(request.getResourceIdField())
+                // If there are no resources, there might be no mapping for the id field.
+                // This makes sure we don't get an error if that happens.
+                .unmappedType("long"))
             .query(buildQuery(tokens, request.getResourceIdField()));
         if (request.getPageParams() != null) {
             sourceBuilder.from(request.getPageParams().getFrom())
                 .size(request.getPageParams().getSize());
         }
+        sourceBuilder.trackTotalHits(true);
 
         IndicesOptions indicesOptions = SearchRequest.DEFAULT_INDICES_OPTIONS;
         SearchRequest searchRequest = new SearchRequest(getIndices())
@@ -84,43 +88,45 @@ public abstract class AbstractTransportGetResourcesAction<Resource extends ToXCo
                 indicesOptions.expandWildcardsOpen(),
                 indicesOptions.expandWildcardsClosed(),
                 indicesOptions))
-            .source(sourceBuilder);
+            .source(customSearchOptions(sourceBuilder));
 
         executeAsyncWithOrigin(client.threadPool().getThreadContext(),
             executionOrigin(),
             searchRequest,
-            new ActionListener<SearchResponse>() {
-                @Override
-                public void onResponse(SearchResponse response) {
+            listener.<SearchResponse>delegateFailure((l, response) -> {
                     List<Resource> docs = new ArrayList<>();
                     Set<String> foundResourceIds = new HashSet<>();
+                    long totalHitCount = response.getHits().getTotalHits().value;
                     for (SearchHit hit : response.getHits().getHits()) {
                         BytesReference docSource = hit.getSourceRef();
                         try (InputStream stream = docSource.streamInput();
                              XContentParser parser = XContentFactory.xContent(XContentType.JSON).createParser(
                                  xContentRegistry, LoggingDeprecationHandler.INSTANCE, stream)) {
                             Resource resource = parse(parser);
-                            docs.add(resource);
-                            foundResourceIds.add(extractIdFromResource(resource));
+                            String id = extractIdFromResource(resource);
+                            // Do not include a resource with the same ID twice
+                            if (foundResourceIds.contains(id) == false) {
+                                docs.add(resource);
+                                foundResourceIds.add(id);
+                            }
                         } catch (IOException e) {
-                            this.onFailure(e);
+                            l.onFailure(e);
                         }
                     }
                     ExpandedIdsMatcher requiredMatches = new ExpandedIdsMatcher(tokens, request.isAllowNoResources());
                     requiredMatches.filterMatchedIds(foundResourceIds);
                     if (requiredMatches.hasUnmatchedIds()) {
-                        listener.onFailure(notFoundException(requiredMatches.unmatchedIdsString()));
+                        l.onFailure(notFoundException(requiredMatches.unmatchedIdsString()));
                     } else {
-                        listener.onResponse(new QueryPage<>(docs, docs.size(), getResultsField()));
+                        // if only exact ids have been given, take the count from docs to avoid potential duplicates
+                        // in versioned indexes (like transform)
+                        if (requiredMatches.isOnlyExact()) {
+                            l.onResponse(new QueryPage<>(docs, docs.size(), getResultsField()));
+                        } else {
+                            l.onResponse(new QueryPage<>(docs, totalHitCount, getResultsField()));
+                        }
                     }
-                }
-
-
-                @Override
-                public void onFailure(Exception e) {
-                    listener.onFailure(e);
-                }
-            },
+                }),
             client::search);
     }
 
@@ -152,6 +158,10 @@ public abstract class AbstractTransportGetResourcesAction<Resource extends ToXCo
             boolQuery.filter(additionalQuery);
         }
         return boolQuery.hasClauses() ? boolQuery : QueryBuilders.matchAllQuery();
+    }
+
+    protected SearchSourceBuilder customSearchOptions(SearchSourceBuilder searchSourceBuilder) {
+        return searchSourceBuilder;
     }
 
     @Nullable

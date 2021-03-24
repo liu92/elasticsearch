@@ -1,24 +1,12 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 package org.elasticsearch.transport;
 
-import org.elasticsearch.action.admin.cluster.node.liveness.TransportLivenessAction;
 import org.elasticsearch.common.network.NetworkService;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
@@ -81,6 +69,21 @@ public final class TransportSettings {
     public static final Setting.AffixSetting<Boolean> TCP_KEEP_ALIVE_PROFILE =
         affixKeySetting("transport.profiles.", "tcp.keep_alive",
             key -> boolSetting(key, TCP_KEEP_ALIVE, Setting.Property.NodeScope));
+    public static final Setting<Integer> TCP_KEEP_IDLE =
+        intSetting("transport.tcp.keep_idle", NetworkService.TCP_KEEP_IDLE, -1, 300, Setting.Property.NodeScope);
+    public static final Setting.AffixSetting<Integer> TCP_KEEP_IDLE_PROFILE =
+        affixKeySetting("transport.profiles.", "tcp.keep_idle",
+            key -> intSetting(key, TCP_KEEP_IDLE, -1, 300, Setting.Property.NodeScope));
+    public static final Setting<Integer> TCP_KEEP_INTERVAL =
+        intSetting("transport.tcp.keep_interval", NetworkService.TCP_KEEP_INTERVAL, -1, 300, Setting.Property.NodeScope);
+    public static final Setting.AffixSetting<Integer> TCP_KEEP_INTERVAL_PROFILE =
+        affixKeySetting("transport.profiles.", "tcp.keep_interval",
+            key -> intSetting(key, TCP_KEEP_INTERVAL, -1, 300, Setting.Property.NodeScope));
+    public static final Setting<Integer> TCP_KEEP_COUNT =
+        intSetting("transport.tcp.keep_count", NetworkService.TCP_KEEP_COUNT, -1, Setting.Property.NodeScope);
+    public static final Setting.AffixSetting<Integer> TCP_KEEP_COUNT_PROFILE =
+        affixKeySetting("transport.profiles.", "tcp.keep_count",
+            key -> intSetting(key, TCP_KEEP_COUNT, -1, Setting.Property.NodeScope));
     public static final Setting<Boolean> TCP_REUSE_ADDRESS =
         boolSetting("transport.tcp.reuse_address", NetworkService.TCP_REUSE_ADDRESS, Setting.Property.NodeScope);
     public static final Setting.AffixSetting<Boolean> TCP_REUSE_ADDRESS_PROFILE =
@@ -115,14 +118,15 @@ public final class TransportSettings {
         listSetting("transport.tracer.include", emptyList(), Function.identity(), Setting.Property.Dynamic, Setting.Property.NodeScope);
     public static final Setting<List<String>> TRACE_LOG_EXCLUDE_SETTING =
         listSetting("transport.tracer.exclude",
-            Arrays.asList("internal:coordination/fault_detection/*", TransportLivenessAction.NAME),
+            Arrays.asList("internal:coordination/fault_detection/*"),
             Function.identity(), Setting.Property.Dynamic, Setting.Property.NodeScope);
 
-    private TransportSettings() {
-    }
+    // Time that processing an inbound message on a transport thread may take at the most before a warning is logged
+    public static final Setting<TimeValue> SLOW_OPERATION_THRESHOLD_SETTING =
+            Setting.positiveTimeSetting("transport.slow_operation_logging_threshold", TimeValue.timeValueSeconds(5),
+                    Setting.Property.Dynamic, Setting.Property.NodeScope);
 
-    private static  <T> Setting<T> fallback(String key, Setting.AffixSetting<T> affixSetting, String regex, String replacement) {
-        return "_na_".equals(key) ? affixSetting.getConcreteSettingForNamespace(key)
-            : affixSetting.getConcreteSetting(key.replaceAll(regex, replacement));
+
+    private TransportSettings() {
     }
 }

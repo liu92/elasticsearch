@@ -1,41 +1,25 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.index.seqno;
 
-import org.apache.logging.log4j.message.ParameterizedMessage;
-import org.apache.lucene.store.AlreadyClosedException;
-import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ActionType;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.replication.ReplicationRequest;
 import org.elasticsearch.action.support.replication.ReplicationResponse;
 import org.elasticsearch.action.support.replication.TransportReplicationAction;
 import org.elasticsearch.cluster.action.shard.ShardStateAction;
-import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.index.shard.IndexShard;
-import org.elasticsearch.index.shard.IndexShardClosedException;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.index.translog.Translog;
 import org.elasticsearch.indices.IndicesService;
@@ -55,6 +39,7 @@ public class GlobalCheckpointSyncAction extends TransportReplicationAction<
         ReplicationResponse> {
 
     public static String ACTION_NAME = "indices:admin/seq_no/global_checkpoint_sync";
+    public static ActionType<ReplicationResponse> TYPE = new ActionType<>(ACTION_NAME, ReplicationResponse::new);
 
     @Inject
     public GlobalCheckpointSyncAction(
@@ -64,8 +49,7 @@ public class GlobalCheckpointSyncAction extends TransportReplicationAction<
             final IndicesService indicesService,
             final ThreadPool threadPool,
             final ShardStateAction shardStateAction,
-            final ActionFilters actionFilters,
-            final IndexNameExpressionResolver indexNameExpressionResolver) {
+            final ActionFilters actionFilters) {
         super(
                 settings,
                 ACTION_NAME,
@@ -75,30 +59,14 @@ public class GlobalCheckpointSyncAction extends TransportReplicationAction<
                 threadPool,
                 shardStateAction,
                 actionFilters,
-                indexNameExpressionResolver,
                 Request::new,
                 Request::new,
                 ThreadPool.Names.MANAGEMENT);
     }
 
-    public void updateGlobalCheckpointForShard(final ShardId shardId) {
-        final ThreadContext threadContext = threadPool.getThreadContext();
-        try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
-            threadContext.markAsSystemContext();
-            execute(
-                    new Request(shardId),
-                    ActionListener.wrap(r -> {
-                    }, e -> {
-                        if (ExceptionsHelper.unwrap(e, AlreadyClosedException.class, IndexShardClosedException.class) == null) {
-                            logger.info(new ParameterizedMessage("{} global checkpoint sync failed", shardId), e);
-                        }
-                    }));
-        }
-    }
-
     @Override
-    protected ReplicationResponse newResponseInstance() {
-        return new ReplicationResponse();
+    protected ReplicationResponse newResponseInstance(StreamInput in) throws IOException {
+        return new ReplicationResponse(in);
     }
 
     @Override
@@ -111,14 +79,16 @@ public class GlobalCheckpointSyncAction extends TransportReplicationAction<
     }
 
     @Override
-    protected ReplicaResult shardOperationOnReplica(final Request request, final IndexShard indexShard) throws Exception {
-        maybeSyncTranslog(indexShard);
-        return new ReplicaResult();
+    protected void shardOperationOnReplica(Request shardRequest, IndexShard replica, ActionListener<ReplicaResult> listener) {
+        ActionListener.completeWith(listener, () -> {
+            maybeSyncTranslog(replica);
+            return new ReplicaResult();
+        });
     }
 
     private void maybeSyncTranslog(final IndexShard indexShard) throws IOException {
         if (indexShard.getTranslogDurability() == Translog.Durability.REQUEST &&
-            indexShard.getLastSyncedGlobalCheckpoint() < indexShard.getGlobalCheckpoint()) {
+            indexShard.getLastSyncedGlobalCheckpoint() < indexShard.getLastKnownGlobalCheckpoint()) {
             indexShard.sync();
         }
     }

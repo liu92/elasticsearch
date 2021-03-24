@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.ssl;
 
@@ -242,7 +243,7 @@ public class SSLConfigurationSettings {
         return setting.get(settings).orElseGet(() -> inferKeyStoreType(path));
     }
 
-    private static String inferKeyStoreType(String path) {
+    public static String inferKeyStoreType(String path) {
         String name = path == null ? "" : path.toLowerCase(Locale.ROOT);
         if (name.endsWith(".p12") || name.endsWith(".pfx") || name.endsWith(".pkcs12")) {
             return PKCS12_KEYSTORE_TYPE;

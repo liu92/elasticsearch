@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml;
 
@@ -97,8 +98,8 @@ public class MachineLearningTests extends ESTestCase {
 
     public void testMachineMemory_givenStatsFailure() throws IOException {
         OsStats stats = mock(OsStats.class);
-        when(stats.getMem()).thenReturn(new OsStats.Mem(-1, -1));
-        assertEquals(-1L, MachineLearning.machineMemoryFromStats(stats));
+        when(stats.getMem()).thenReturn(new OsStats.Mem(0, 0));
+        assertEquals(0L, MachineLearning.machineMemoryFromStats(stats));
     }
 
     public void testMachineMemory_givenNoCgroup() throws IOException {

@@ -1,14 +1,15 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.core.template;
 
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
-import org.elasticsearch.xpack.core.indexlifecycle.LifecyclePolicy;
-import org.elasticsearch.xpack.core.indexlifecycle.LifecyclePolicyUtils;
+import org.elasticsearch.xpack.core.ilm.LifecyclePolicy;
+import org.elasticsearch.xpack.core.ilm.LifecyclePolicyUtils;
 
 /**
  * Describes an index lifecycle policy to be loaded from a resource file for use with an {@link IndexTemplateRegistry}.

@@ -121,18 +121,31 @@
                 type:     keyword
 
 ---
-"Create index with explicit _doc type":
-
+"Create index without soft deletes":
+  - skip:
+      version:  " - 7.99.99"
+      reason:   "indices without soft-deletes is no longer supported "
   - do:
-      catch: bad_request
+      catch: /illegal_argument_exception/
       indices.create:
         index: test_index
         body:
-          mappings:
-            _doc:
-              properties:
-                field:
-                  type: keyword
+          settings:
+            soft_deletes.enabled: false
 
-  - match: { error.type: "illegal_argument_exception" }
-  - match: { error.reason: "The mapping definition cannot be nested under a type [_doc] unless include_type_name is set to true." }
+---
+"Create with alias containing date math":
+  - skip:
+      version: " - 7.12.99"
+      reason: "date math support for aliases was added in 7.13"
+  - do:
+      indices.create:
+        index: <logs_http_{2022-12-31||/d{yyyy-MM-dd}}>
+        body:
+          aliases:
+            '<logs_{2022-12-31||/d{yyyy-MM-dd}}>': {}
+
+  - do:
+      indices.exists_alias:
+        name: logs_2022-12-31
+  - is_true: ''

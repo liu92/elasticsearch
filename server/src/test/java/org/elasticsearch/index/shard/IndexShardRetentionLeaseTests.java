@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.index.shard;
@@ -27,6 +16,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.engine.InternalEngineFactory;
+import org.elasticsearch.index.seqno.ReplicationTracker;
 import org.elasticsearch.index.seqno.RetentionLease;
 import org.elasticsearch.index.seqno.RetentionLeaseStats;
 import org.elasticsearch.index.seqno.RetentionLeases;
@@ -35,14 +25,13 @@ import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -73,7 +62,7 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
                 indexShard.addRetentionLease(
                         Integer.toString(i), minimumRetainingSequenceNumbers[i], "test-" + i, ActionListener.wrap(() -> {}));
                 assertRetentionLeases(
-                        indexShard, i + 1, minimumRetainingSequenceNumbers, primaryTerm, 1 + i, true, false);
+                        indexShard, i + 1, minimumRetainingSequenceNumbers, primaryTerm, 2 + i, true, false);
             }
 
             for (int i = 0; i < length; i++) {
@@ -84,7 +73,7 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
                         length,
                         minimumRetainingSequenceNumbers,
                         primaryTerm,
-                        1 + length + i,
+                        2 + length + i,
                         true,
                         false);
             }
@@ -105,7 +94,7 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
                 indexShard.addRetentionLease(
                         Integer.toString(i), minimumRetainingSequenceNumbers[i], "test-" + i, ActionListener.wrap(() -> {}));
                 assertRetentionLeases(
-                        indexShard, i + 1, minimumRetainingSequenceNumbers, primaryTerm, 1 + i, true, false);
+                        indexShard, i + 1, minimumRetainingSequenceNumbers, primaryTerm, 2 + i, true, false);
             }
 
             for (int i = 0; i < length; i++) {
@@ -115,7 +104,7 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
                         length - i - 1,
                         minimumRetainingSequenceNumbers,
                         primaryTerm,
-                        1 + length + i,
+                        2 + length + i,
                         true,
                         false);
             }
@@ -130,6 +119,12 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
 
     public void testExpirationOnReplica() throws IOException {
         runExpirationTest(false);
+    }
+
+    private RetentionLease peerRecoveryRetentionLease(IndexShard indexShard) {
+        return new RetentionLease(
+            ReplicationTracker.getPeerRecoveryRetentionLeaseId(indexShard.routingEntry()), 0, currentTimeMillis.get(),
+            ReplicationTracker.PEER_RECOVERY_RETENTION_LEASE_SOURCE);
     }
 
     private void runExpirationTest(final boolean primary) throws IOException {
@@ -147,23 +142,28 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
         try {
             final long[] retainingSequenceNumbers = new long[1];
             retainingSequenceNumbers[0] = randomLongBetween(0, Long.MAX_VALUE);
+            final long initialVersion;
             if (primary) {
+                initialVersion = 2;
                 indexShard.addRetentionLease("0", retainingSequenceNumbers[0], "test-0", ActionListener.wrap(() -> {}));
             } else {
+                initialVersion = 3;
                 final RetentionLeases retentionLeases = new RetentionLeases(
                         primaryTerm,
-                        1,
-                        Collections.singleton(new RetentionLease("0", retainingSequenceNumbers[0], currentTimeMillis.get(), "test-0")));
+                        initialVersion,
+                        Arrays.asList(
+                            peerRecoveryRetentionLease(indexShard),
+                            new RetentionLease("0", retainingSequenceNumbers[0], currentTimeMillis.get(), "test-0")));
                 indexShard.updateRetentionLeasesOnReplica(retentionLeases);
             }
 
             {
                 final RetentionLeases retentionLeases = indexShard.getEngine().config().retentionLeasesSupplier().get();
-                assertThat(retentionLeases.version(), equalTo(1L));
-                assertThat(retentionLeases.leases(), hasSize(1));
-                final RetentionLease retentionLease = retentionLeases.leases().iterator().next();
+                assertThat(retentionLeases.version(), equalTo(initialVersion));
+                assertThat(retentionLeases.leases(), hasSize(2));
+                final RetentionLease retentionLease = retentionLeases.get("0");
                 assertThat(retentionLease.timestamp(), equalTo(currentTimeMillis.get()));
-                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, 1, primary, false);
+                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, initialVersion, primary, false);
             }
 
             // renew the lease
@@ -174,28 +174,30 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
             } else {
                 final RetentionLeases retentionLeases = new RetentionLeases(
                         primaryTerm,
-                        2,
-                        Collections.singleton(new RetentionLease("0", retainingSequenceNumbers[0], currentTimeMillis.get(), "test-0")));
+                        initialVersion + 1,
+                        Arrays.asList(
+                            peerRecoveryRetentionLease(indexShard),
+                            new RetentionLease("0", retainingSequenceNumbers[0], currentTimeMillis.get(), "test-0")));
                 indexShard.updateRetentionLeasesOnReplica(retentionLeases);
             }
 
             {
                 final RetentionLeases retentionLeases = indexShard.getEngine().config().retentionLeasesSupplier().get();
-                assertThat(retentionLeases.version(), equalTo(2L));
-                assertThat(retentionLeases.leases(), hasSize(1));
-                final RetentionLease retentionLease = retentionLeases.leases().iterator().next();
+                assertThat(retentionLeases.version(), equalTo(initialVersion + 1));
+                assertThat(retentionLeases.leases(), hasSize(2));
+                final RetentionLease retentionLease = retentionLeases.get("0");
                 assertThat(retentionLease.timestamp(), equalTo(currentTimeMillis.get()));
-                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, 2, primary, false);
+                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, initialVersion + 1, primary, false);
             }
 
             // now force the lease to expire
             currentTimeMillis.set(
                     currentTimeMillis.get() + randomLongBetween(retentionLeaseMillis, Long.MAX_VALUE - currentTimeMillis.get()));
             if (primary) {
-                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, 2, true, false);
-                assertRetentionLeases(indexShard, 0, new long[0], primaryTerm, 3, true, true);
+                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, initialVersion + 1, true, false);
+                assertRetentionLeases(indexShard, 0, new long[0], primaryTerm, initialVersion + 2, true, true);
             } else {
-                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, 2, false, false);
+                assertRetentionLeases(indexShard, 1, retainingSequenceNumbers, primaryTerm, initialVersion + 1, false, false);
             }
         } finally {
             closeShards(indexShard);
@@ -229,13 +231,8 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
             // the written retention leases should equal our current retention leases
             final RetentionLeases retentionLeases = indexShard.getEngine().config().retentionLeasesSupplier().get();
             final RetentionLeases writtenRetentionLeases = indexShard.loadRetentionLeases();
-            if (retentionLeases.leases().isEmpty()) {
-                assertThat(writtenRetentionLeases.version(), equalTo(0L));
-                assertThat(writtenRetentionLeases.leases(), empty());
-            } else {
-                assertThat(writtenRetentionLeases.version(), equalTo((long) length));
-                assertThat(retentionLeases.leases(), contains(retentionLeases.leases().toArray(new RetentionLease[0])));
-            }
+            assertThat(writtenRetentionLeases.version(), equalTo(1L + length));
+            assertThat(writtenRetentionLeases.leases(), contains(retentionLeases.leases().toArray(new RetentionLease[0])));
 
             // when we recover, we should recover the retention leases
             final IndexShard recoveredShard = reinitShard(
@@ -244,15 +241,10 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
             try {
                 recoverShardFromStore(recoveredShard);
                 final RetentionLeases recoveredRetentionLeases = recoveredShard.getEngine().config().retentionLeasesSupplier().get();
-                if (retentionLeases.leases().isEmpty()) {
-                    assertThat(recoveredRetentionLeases.version(), equalTo(0L));
-                    assertThat(recoveredRetentionLeases.leases(), empty());
-                } else {
-                    assertThat(recoveredRetentionLeases.version(), equalTo((long) length));
-                    assertThat(
-                            recoveredRetentionLeases.leases(),
-                            contains(retentionLeases.leases().toArray(new RetentionLease[0])));
-                }
+                assertThat(recoveredRetentionLeases.version(), equalTo(1L + length));
+                assertThat(
+                        recoveredRetentionLeases.leases(),
+                        contains(retentionLeases.leases().toArray(new RetentionLease[0])));
             } finally {
                 closeShards(recoveredShard);
             }
@@ -265,8 +257,10 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
             try {
                 recoverShardFromStore(forceRecoveredShard);
                 final RetentionLeases recoveredRetentionLeases = forceRecoveredShard.getEngine().config().retentionLeasesSupplier().get();
-                assertThat(recoveredRetentionLeases.leases(), empty());
-                assertThat(recoveredRetentionLeases.version(), equalTo(0L));
+                assertThat(recoveredRetentionLeases.leases(), hasSize(1));
+                assertThat(recoveredRetentionLeases.leases().iterator().next().id(),
+                    equalTo(ReplicationTracker.getPeerRecoveryRetentionLeaseId(indexShard.routingEntry())));
+                assertThat(recoveredRetentionLeases.version(), equalTo(1L));
             } finally {
                 closeShards(forceRecoveredShard);
             }
@@ -291,27 +285,11 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
                     stats.retentionLeases(),
                     length,
                     minimumRetainingSequenceNumbers,
-                    length == 0 ? RetentionLeases.EMPTY.primaryTerm() : indexShard.getOperationPrimaryTerm(),
-                    length);
+                    indexShard.getOperationPrimaryTerm(),
+                    length + 1);
         } finally {
             closeShards(indexShard);
         }
-    }
-
-    public void testRetentionLeasesActionsFailWithSoftDeletesDisabled() throws Exception {
-        IndexShard shard = newStartedShard(true, Settings.builder().put(IndexSettings.INDEX_SOFT_DELETES_SETTING.getKey(), false).build());
-        assertThat(expectThrows(AssertionError.class, () -> shard.addRetentionLease(randomAlphaOfLength(10),
-            randomLongBetween(SequenceNumbers.NO_OPS_PERFORMED, Long.MAX_VALUE), "test", ActionListener.wrap(() -> {}))).getMessage(),
-            equalTo("retention leases requires soft deletes but [index] does not have soft deletes enabled"));
-        assertThat(expectThrows(AssertionError.class, () -> shard.renewRetentionLease(
-            randomAlphaOfLength(10), randomLongBetween(SequenceNumbers.NO_OPS_PERFORMED, Long.MAX_VALUE), "test")).getMessage(),
-            equalTo("retention leases requires soft deletes but [index] does not have soft deletes enabled"));
-        assertThat(expectThrows(AssertionError.class, () -> shard.removeRetentionLease(
-            randomAlphaOfLength(10), ActionListener.wrap(() -> {}))).getMessage(),
-            equalTo("retention leases requires soft deletes but [index] does not have soft deletes enabled"));
-        assertThat(expectThrows(AssertionError.class, shard::syncRetentionLeases).getMessage(),
-            equalTo("retention leases requires soft deletes but [index] does not have soft deletes enabled"));
-        closeShards(shard);
     }
 
     private void assertRetentionLeases(
@@ -355,7 +333,9 @@ public class IndexShardRetentionLeaseTests extends IndexShardTestCase {
         assertThat(retentionLeases.version(), equalTo(version));
         final Map<String, RetentionLease> idToRetentionLease = new HashMap<>();
         for (final RetentionLease retentionLease : retentionLeases.leases()) {
-            idToRetentionLease.put(retentionLease.id(), retentionLease);
+            if (ReplicationTracker.PEER_RECOVERY_RETENTION_LEASE_SOURCE.equals(retentionLease.source()) == false) {
+                idToRetentionLease.put(retentionLease.id(), retentionLease);
+            }
         }
 
         assertThat(idToRetentionLease.entrySet(), hasSize(size));

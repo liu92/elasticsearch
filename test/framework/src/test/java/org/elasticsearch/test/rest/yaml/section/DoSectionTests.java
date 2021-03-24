@@ -1,20 +1,9 @@
 /*
- * Licensed to Elasticsearch under one or more contributor
- * license agreements. See the NOTICE file distributed with
- * this work for additional information regarding copyright
- * ownership. Elasticsearch licenses this file to you under
- * the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
  */
 
 package org.elasticsearch.test.rest.yaml.section;
@@ -24,7 +13,7 @@ import org.elasticsearch.Version;
 import org.elasticsearch.client.Node;
 import org.elasticsearch.client.NodeSelector;
 import org.elasticsearch.common.ParsingException;
-import org.elasticsearch.common.logging.DeprecationLogger;
+import org.elasticsearch.common.logging.HeaderWarning;
 import org.elasticsearch.common.xcontent.XContentLocation;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.yaml.YamlXContent;
@@ -38,6 +27,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
@@ -61,10 +51,10 @@ public class DoSectionTests extends AbstractClientYamlTestFragmentParserTestCase
             section.checkWarningHeaders(emptyList(), Version.CURRENT);
         }
 
-        final String testHeader = DeprecationLogger.formatWarning("test");
-        final String anotherHeader = DeprecationLogger.formatWarning("another");
-        final String someMoreHeader = DeprecationLogger.formatWarning("some more");
-        final String catHeader = DeprecationLogger.formatWarning("cat");
+        final String testHeader = HeaderWarning.formatWarning("test");
+        final String anotherHeader = HeaderWarning.formatWarning("another \"with quotes and \\ backslashes\"");
+        final String someMoreHeader = HeaderWarning.formatWarning("some more");
+        final String catHeader = HeaderWarning.formatWarning("cat");
         // Any warning headers fail
         {
             final DoSection section = new DoSection(new XContentLocation(1, 1));
@@ -91,7 +81,7 @@ public class DoSectionTests extends AbstractClientYamlTestFragmentParserTestCase
         }
         {
             final DoSection section = new DoSection(new XContentLocation(1, 1));
-            section.setExpectedWarningHeaders(Arrays.asList("test", "another", "some more"));
+            section.setExpectedWarningHeaders(Arrays.asList("test", "another \"with quotes and \\ backslashes\"", "some more"));
             section.checkWarningHeaders(Arrays.asList(testHeader, anotherHeader, someMoreHeader), Version.CURRENT);
         }
 
@@ -126,16 +116,91 @@ public class DoSectionTests extends AbstractClientYamlTestFragmentParserTestCase
                             "did not get expected warning headers [\n\tanother\n\tsome more\n]\n",
                     e.getMessage());
         }
+
+        // "allowed" warnings are fine
+        {
+            final DoSection section = new DoSection(new XContentLocation(1, 1));
+            section.setAllowedWarningHeaders(singletonList("test"));
+            section.checkWarningHeaders(singletonList(testHeader), Version.CURRENT);
+            // and don't throw exceptions if we don't receive them
+            section.checkWarningHeaders(emptyList(), Version.CURRENT);
+        }
     }
 
-    public void testIgnoreTypesWarnings() {
-        String legitimateWarning = DeprecationLogger.formatWarning("warning");
-        String typesWarning = DeprecationLogger.formatWarning("[types removal] " +
-            "The endpoint /{index}/{type}/_count is deprecated, use /{index}/_count instead.");
+    public void testWarningHeadersRegex() {
 
+        final String testHeader = HeaderWarning.formatWarning("test");
+        final String realisticTestHeader = HeaderWarning.formatWarning("index template [my-it] has index patterns [test-*] matching " +
+            "patterns from existing older templates [global] with patterns (global => [*]); this template [my-it] will take " +
+            "precedence during new index creation");
+        final String testHeaderWithQuotesAndBackslashes = HeaderWarning.formatWarning("test \"with quotes and \\ backslashes\"");
+
+
+        //require header and it matches (basic example)
         DoSection section = new DoSection(new XContentLocation(1, 1));
-        section.setExpectedWarningHeaders(singletonList("warning"));
-        section.checkWarningHeaders(Arrays.asList(legitimateWarning, typesWarning), Version.CURRENT);
+        section.setExpectedWarningHeadersRegex(singletonList(Pattern.compile(".*")));
+        section.checkWarningHeaders(singletonList(testHeader), Version.CURRENT);
+
+        //require header and it matches (realistic example)
+        section = new DoSection(new XContentLocation(1, 1));
+
+
+        section.setExpectedWarningHeadersRegex(
+            singletonList(Pattern.compile("^index template \\[(.+)\\] has index patterns \\[(.+)\\] matching patterns from existing " +
+                "older templates \\[(.+)\\] with patterns \\((.+)\\); this template \\[(.+)\\] will " +
+                "take precedence during new index creation$")));
+        section.checkWarningHeaders(singletonList(realisticTestHeader), Version.CURRENT);
+
+        //require header, but no headers returned
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setExpectedWarningHeadersRegex(singletonList(Pattern.compile("junk")));
+        DoSection finalSection = section;
+        AssertionError error =
+            expectThrows(AssertionError.class, () -> finalSection.checkWarningHeaders(emptyList(), Version.CURRENT));
+        assertEquals("the following regular expression did not match any warning header [\n\tjunk\n]\n", error.getMessage());
+
+        //require multiple header, but none returned (plural error message)
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setExpectedWarningHeadersRegex(List.of(Pattern.compile("junk"), Pattern.compile("junk2")));
+        DoSection finalSection2 = section;
+        error =
+            expectThrows(AssertionError.class, () -> finalSection2.checkWarningHeaders(emptyList(), Version.CURRENT));
+        assertEquals("the following regular expressions did not match any warning header [\n\tjunk\n\tjunk2\n]\n", error.getMessage());
+
+        //require header, got one back, but not matched
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setExpectedWarningHeadersRegex(singletonList(Pattern.compile("junk")));
+        DoSection finalSection3 = section;
+        error = expectThrows(AssertionError.class, () -> finalSection3.checkWarningHeaders(singletonList(testHeader), Version.CURRENT));
+        assertTrue(error.getMessage().contains("got unexpected warning header") && error.getMessage().contains("test"));
+        assertTrue(error.getMessage().contains("the following regular expression did not match any warning header [\n\tjunk\n]\n"));
+
+        //allow header
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setAllowedWarningHeadersRegex(singletonList(Pattern.compile("test")));
+        section.checkWarningHeaders(singletonList(testHeader), Version.CURRENT);
+
+        //allow only one header
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setExpectedWarningHeadersRegex(singletonList(Pattern.compile("test")));
+        DoSection finalSection4 = section;
+        error = expectThrows(AssertionError.class, () ->
+            finalSection4.checkWarningHeaders(List.of(testHeader, realisticTestHeader), Version.CURRENT));
+        assertTrue(error.getMessage().contains("got unexpected warning header") && error.getMessage().contains("precedence during"));
+
+        //the non-regex version does not need to worry about escaping since it is an exact match, and the code ensures that both
+        //sides of the match are escaped the same... however for the regex version, it is done against the raw string minus the
+        //prefix. For example, the raw string looks like this:
+        //299 Elasticsearch-8.0.0-SNAPSHOT-d0ea206e300dab312f47611e22850bf799ca6192 "test"
+        //where 299 Elasticsearch-8.0.0-SNAPSHOT-d0ea206e300dab312f47611e22850bf799ca6192 is the prefix,
+        //so the match is against [test] (no brackets). If the message itself has quotes/backslashes then the raw string will look like:
+        //299 Elasticsearch-8.0.0-SNAPSHOT-d0ea206e300dab312f47611e22850bf799ca6192 "test \"with quotes and \\ backslashes\""
+        //and the match is against [test \"with quotes and \\ backslashes\"] (no brackets) .. so the regex needs account for the extra
+        //backslashes. Escaping escape characters is annoying but it should be very rare and the non-regex version should be preferred
+        section = new DoSection(new XContentLocation(1, 1));
+        section.setAllowedWarningHeadersRegex(singletonList(
+            Pattern.compile("^test \\\\\"with quotes and \\\\\\\\ backslashes\\\\\"$")));
+        section.checkWarningHeaders(singletonList(testHeaderWithQuotesAndBackslashes), Version.CURRENT);
     }
 
     public void testParseDoSectionNoBody() throws Exception {
@@ -465,6 +530,54 @@ public class DoSectionTests extends AbstractClientYamlTestFragmentParserTestCase
         assertThat(doSection.getApiCallSection(), notNullValue());
         assertThat(doSection.getExpectedWarningHeaders(), equalTo(singletonList(
                 "just one entry this time")));
+    }
+
+    public void testParseDoSectionAllowedWarnings() throws Exception {
+        parser = createParser(YamlXContent.yamlXContent,
+                "indices.get_field_mapping:\n" +
+                "        index: test_index\n" +
+                "        type: test_type\n" +
+                "allowed_warnings:\n" +
+                "    - some test warning they are typically pretty long\n" +
+                "    - some other test warning sometimes they have [in] them"
+        );
+
+        DoSection doSection = DoSection.parse(parser);
+        assertThat(doSection.getCatch(), nullValue());
+        assertThat(doSection.getApiCallSection(), notNullValue());
+        assertThat(doSection.getApiCallSection().getApi(), equalTo("indices.get_field_mapping"));
+        assertThat(doSection.getApiCallSection().getParams().size(), equalTo(2));
+        assertThat(doSection.getApiCallSection().getParams().get("index"), equalTo("test_index"));
+        assertThat(doSection.getApiCallSection().getParams().get("type"), equalTo("test_type"));
+        assertThat(doSection.getApiCallSection().hasBody(), equalTo(false));
+        assertThat(doSection.getApiCallSection().getBodies().size(), equalTo(0));
+        assertThat(doSection.getAllowedWarningHeaders(), equalTo(Arrays.asList(
+                "some test warning they are typically pretty long",
+                "some other test warning sometimes they have [in] them")));
+
+        parser = createParser(YamlXContent.yamlXContent,
+                "indices.get_field_mapping:\n" +
+                "        index: test_index\n" +
+                "allowed_warnings:\n" +
+                "    - just one entry this time"
+        );
+
+        doSection = DoSection.parse(parser);
+        assertThat(doSection.getCatch(), nullValue());
+        assertThat(doSection.getApiCallSection(), notNullValue());
+        assertThat(doSection.getAllowedWarningHeaders(), equalTo(singletonList(
+                "just one entry this time")));
+
+        parser = createParser(YamlXContent.yamlXContent,
+                "indices.get_field_mapping:\n" +
+                "        index: test_index\n" +
+                "warnings:\n" +
+                "    - foo\n" +
+                "allowed_warnings:\n" +
+                "    - foo"
+        );
+        Exception e = expectThrows(IllegalArgumentException.class, () -> DoSection.parse(parser));
+        assertThat(e.getMessage(), equalTo("the warning [foo] was both allowed and expected"));
     }
 
     public void testNodeSelectorByVersion() throws IOException {

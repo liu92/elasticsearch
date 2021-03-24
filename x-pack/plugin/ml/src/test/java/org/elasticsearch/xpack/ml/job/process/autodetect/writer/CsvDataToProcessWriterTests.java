@@ -1,11 +1,11 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.ml.job.process.autodetect.writer;
 
-import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.env.Environment;
@@ -42,6 +42,7 @@ import java.util.List;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -85,7 +86,9 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
         dataDescription.setTimeFormat(DataDescription.EPOCH);
 
         Detector detector = new Detector.Builder("metric", "value").build();
-        analysisConfig = new AnalysisConfig.Builder(Collections.singletonList(detector)).build();
+        analysisConfig = new AnalysisConfig.Builder(Collections.singletonList(detector))
+            .setBucketSpan(TimeValue.timeValueSeconds(1))
+            .build();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndDataIsValid() throws IOException {
@@ -106,7 +109,7 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
         expectedRecords.add(new String[] { "2", "2.0", "" });
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndCategorization() throws IOException {
@@ -125,7 +128,7 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
         CsvDataToProcessWriter writer = createWriter();
         writer.writeHeader();
         try (CategorizationAnalyzer categorizationAnalyzer =
-                     new CategorizationAnalyzer(analysisRegistry, environment, analysisConfig.getCategorizationAnalyzerConfig())) {
+                     new CategorizationAnalyzer(analysisRegistry, analysisConfig.getCategorizationAnalyzerConfig())) {
             writer.write(inputStream, categorizationAnalyzer, null, (r, e) -> {});
         }
         verify(dataCountsReporter, times(1)).startNewIncrementalCount();
@@ -143,7 +146,7 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
         }
         assertWrittenRecordsEqualTo(expectedRecords);
 
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndTimestampsAreOutOfOrder() throws IOException {
@@ -166,7 +169,7 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
 
         verify(dataCountsReporter, times(2)).reportOutOfOrderRecord(2);
         verify(dataCountsReporter, never()).reportLatestTimeIncrementalStats(anyLong());
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndAllRecordsAreOutOfOrder() throws IOException {
@@ -189,15 +192,18 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
 
         verify(dataCountsReporter, times(2)).reportOutOfOrderRecord(2);
         verify(dataCountsReporter, times(2)).reportLatestTimeIncrementalStats(anyLong());
-        verify(dataCountsReporter, never()).reportRecordWritten(anyLong(), anyLong());
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter, never()).reportRecordWritten(anyLong(), anyLong(), anyLong());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_GivenTimeFormatIsEpochAndSomeTimestampsWithinLatencySomeOutOfOrder() throws IOException {
-        AnalysisConfig.Builder builder =
-                new AnalysisConfig.Builder(Collections.singletonList(new Detector.Builder("metric", "value").build()));
-        builder.setLatency(TimeValue.timeValueSeconds(2));
-        analysisConfig = builder.build();
+        analysisConfig = new AnalysisConfig.Builder(
+            Collections.singletonList(
+                new Detector.Builder("metric", "value").build()
+            ))
+            .setLatency(TimeValue.timeValueSeconds(2))
+            .setBucketSpan(TimeValue.timeValueSeconds(1))
+            .build();
 
         StringBuilder input = new StringBuilder();
         input.append("time,metric,value\n");
@@ -224,7 +230,47 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
 
         verify(dataCountsReporter, times(1)).reportOutOfOrderRecord(2);
         verify(dataCountsReporter, never()).reportLatestTimeIncrementalStats(anyLong());
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
+    }
+
+    public void testWrite_GivenTimeFormatIsEpochAndSomeTimestampsOutOfOrderWithinBucketSpan() throws Exception {
+        analysisConfig = new AnalysisConfig.Builder(
+            Collections.singletonList(
+                new Detector.Builder("metric", "value").build()
+            ))
+            .setBucketSpan(TimeValue.timeValueSeconds(10))
+            .build();
+
+        StringBuilder input = new StringBuilder();
+        input.append("time,metric,value\n");
+        input.append("4,foo,4.0\n");
+        input.append("5,foo,5.0\n");
+        input.append("3,foo,3.0\n");
+        input.append("4,bar,4.0\n");
+        input.append("2,bar,2.0\n");
+        input.append("12,bar,12.0\n");
+        input.append("2,bar,2.0\n");
+        input.append("\0");
+        InputStream inputStream = createInputStream(input.toString());
+        CsvDataToProcessWriter writer = createWriter();
+        writer.writeHeader();
+        writer.write(inputStream, null, null, (r, e) -> {});
+        verify(dataCountsReporter, times(1)).startNewIncrementalCount();
+
+        List<String[]> expectedRecords = new ArrayList<>();
+        // The final field is the control field
+        expectedRecords.add(new String[] { "time", "value", "." });
+        expectedRecords.add(new String[] { "4", "4.0", "" });
+        expectedRecords.add(new String[] { "5", "5.0", "" });
+        expectedRecords.add(new String[] { "3", "3.0", "" });
+        expectedRecords.add(new String[] { "4", "4.0", "" });
+        expectedRecords.add(new String[] { "2", "2.0", "" });
+        expectedRecords.add(new String[] { "12", "12.0", "" });
+        assertWrittenRecordsEqualTo(expectedRecords);
+
+        verify(dataCountsReporter, times(1)).reportOutOfOrderRecord(2);
+        verify(dataCountsReporter, never()).reportLatestTimeIncrementalStats(anyLong());
+        verify(dataCountsReporter).finishReporting();
     }
 
     public void testWrite_NullByte() throws IOException {
@@ -257,14 +303,15 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
         assertWrittenRecordsEqualTo(expectedRecords);
 
         verify(dataCountsReporter, times(2)).reportMissingField();
-        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 1000);
-        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 2000);
-        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 3000);
-        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 4000);
+        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 1000, 1000);
+        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 2000, 2000);
+        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 3000, 3000);
+        verify(dataCountsReporter, times(1)).reportRecordWritten(2, 4000, 4000);
         verify(dataCountsReporter, times(1)).reportDateParseError(2);
-        verify(dataCountsReporter).finishReporting(any());
+        verify(dataCountsReporter).finishReporting();
     }
 
+    @SuppressWarnings("unchecked")
     public void testWrite_EmptyInput() throws IOException {
         AnalysisConfig.Builder builder =
                 new AnalysisConfig.Builder(Collections.singletonList(new Detector.Builder("metric", "value").build()));
@@ -273,11 +320,7 @@ public class CsvDataToProcessWriterTests extends ESTestCase {
 
         when(dataCountsReporter.incrementalStats()).thenReturn(new DataCounts("foo"));
 
-        doAnswer(invocation -> {
-            ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[0];
-            listener.onResponse(true);
-            return null;
-        }).when(dataCountsReporter).finishReporting(any());
+        doNothing().when(dataCountsReporter).finishReporting();
 
         InputStream inputStream = createInputStream("");
         CsvDataToProcessWriter writer = createWriter();

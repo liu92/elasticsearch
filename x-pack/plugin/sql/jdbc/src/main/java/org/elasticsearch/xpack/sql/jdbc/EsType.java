@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 
 package org.elasticsearch.xpack.sql.jdbc;
@@ -11,7 +12,7 @@ import java.sql.SQLType;
 import java.sql.Types;
 
 public enum EsType implements SQLType {
-    
+
     NULL(                     Types.NULL),
     UNSUPPORTED(              Types.OTHER),
     BOOLEAN(                  Types.BOOLEAN),
@@ -46,7 +47,8 @@ public enum EsType implements SQLType {
     INTERVAL_HOUR_TO_SECOND(  ExtraTypes.INTERVAL_HOUR_SECOND),
     INTERVAL_MINUTE_TO_SECOND(ExtraTypes.INTERVAL_MINUTE_SECOND),
     GEO_POINT(                ExtraTypes.GEOMETRY),
-    GEO_SHAPE(                ExtraTypes.GEOMETRY);
+    GEO_SHAPE(                ExtraTypes.GEOMETRY),
+    SHAPE(                    ExtraTypes.GEOMETRY);
 
     private final Integer type;
 

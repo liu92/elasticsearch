@@ -1,7 +1,8 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License;
- * you may not use this file except in compliance with the Elastic License.
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0; you may not use this file except in compliance with the Elastic License
+ * 2.0.
  */
 package org.elasticsearch.xpack.core.security.action.token;
 
@@ -25,6 +26,11 @@ public final class InvalidateTokenResponse extends ActionResponse implements ToX
 
     public InvalidateTokenResponse() {}
 
+    public InvalidateTokenResponse(StreamInput in) throws IOException {
+        super(in);
+        result = new TokensInvalidationResult(in);
+    }
+
     public InvalidateTokenResponse(TokensInvalidationResult result) {
         this.result = result;
     }
@@ -35,14 +41,7 @@ public final class InvalidateTokenResponse extends ActionResponse implements ToX
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         result.writeTo(out);
-    }
-
-    @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        result = new TokensInvalidationResult(in);
     }
 
     @Override

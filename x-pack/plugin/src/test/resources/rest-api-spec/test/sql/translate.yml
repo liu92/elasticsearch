@@ -6,7 +6,6 @@
         body:
           - index:
               _index: test
-              _type:  doc
               _id:    1
           - str: test1
             int: 1
@@ -18,12 +17,8 @@
   - match:
       $body:
         size: 1000
-        _source:
-          includes:
-            - str
-          excludes: []
-        docvalue_fields:
-          - field: int
+        _source: false
+        fields: [ {"field" : "int" }, {"field" : "str" } ]
         sort:
           - int:
               order: asc
